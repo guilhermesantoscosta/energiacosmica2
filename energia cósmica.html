@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Singularidade — de proto-estrela a buraco negro</title>
+<style>
+:root{--bg:#04050b;--fg:#e9eeff;--mut:#8f9ac0;--ac:#ffb347}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);overflow:hidden;font-family:Georgia,"Palatino Linotype",serif;touch-action:none;user-select:none}
+canvas{display:block;width:100vw;height:100vh}
+#hud{position:fixed;left:14px;top:12px;width:min(300px,60vw);pointer-events:none;text-shadow:0 1px 6px #000}
+#hn{font-size:20px;letter-spacing:.02em}
+#ht{font-size:13px;color:var(--mut);margin-bottom:8px;font-style:italic}
+.bar{height:7px;background:#ffffff18;border-radius:4px;overflow:hidden;margin:3px 0 7px}
+.bar i{display:block;height:100%;width:0;background:var(--ac);border-radius:4px}
+#hb{background:#ff5b4a}
+.lb{font-size:12px;color:var(--mut);display:flex;justify-content:space-between}
+#ov{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:radial-gradient(#04050bcc,#04050bf2);padding:16px}
+.cd{max-width:520px;text-align:left}
+.cd h1{font-size:clamp(28px,6vw,46px);font-weight:400;margin:0 0 14px;line-height:1.05}
+.cd p{line-height:1.55;color:#c9d1f0;margin:0 0 12px;font-size:16px}
+button{margin-top:10px;font:inherit;font-size:17px;color:#1a1204;background:var(--ac);border:0;padding:11px 22px;border-radius:999px;cursor:pointer}
+button:focus-visible{outline:3px solid #fff;outline-offset:3px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="hn"></div><div id="ht"></div>
+  <div class="lb"><span>Massa</span><span id="hm"></span></div><div class="bar"><i id="pb"></i></div>
+  <div class="lb"><span>Integridade</span><span id="hv"></span></div><div class="bar"><i id="hb"></i></div>
+</div>
+<div id="ov"></div>
+<script>
+"use strict";
+const cv=document.getElementById('c'),g=cv.getContext('2d');
+let W,H;
+function rs(){const d=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*d;cv.height=H*d;g.setTransform(d,0,0,d,0,0)}
+addEventListener('resize',rs);rs();
+
+/* ---------- Dados das 10 fases ---------- */
+const PH=[
+{n:'Proto-estrela',tp:'Núcleo de uma nuvem molecular em colapso',c:'#ff6a3d',r:7,m:[.01,.08],d:'Um grumo de gás e poeira começa a brilhar. Engula poeira para ganhar massa.'},
+{n:'Estrela T Tauri',tp:'Pré-sequência principal',c:'#ff8f45',r:9,m:[.08,.4],d:'Jovem e instável, ainda cercada de disco. Estrelas maiores já distorcem o espaço.'},
+{n:'Anã Vermelha',tp:'Classe M, sequência principal',c:'#ff4d3a',r:11,m:[.4,.6],d:'A fusão do hidrogênio começa de verdade. Fria, pequena e vulnerável.'},
+{n:'Anã Laranja',tp:'Classe K',c:'#ffa63d',r:13,m:[.6,.9],d:'Mais quente e mais estável. Planetas orbitam perto das zonas de perigo.'},
+{n:'Anã Amarela',tp:'Classe G, como o Sol',c:'#ffe066',r:16,m:[.9,1.4],d:'O auge da vida tranquila. Agora você já engole estrelinhas inteiras.'},
+{n:'Estrela Branca',tp:'Classe F/A',c:'#f2f0ff',r:19,m:[1.4,2.5],d:'Cada vez mais quente e luminosa, queimando combustível depressa.'},
+{n:'Gigante Azul',tp:'Classe B/O',c:'#8fc2ff',r:23,m:[2.5,16],d:'Massiva e azulada. A vida é curta, e as estrelas rivais são enormes.'},
+{n:'Supergigante Vermelha',tp:'Fim da fusão do hidrogênio',c:'#ff3b24',r:32,m:[16,25],d:'O envelope incha e esfria. O núcleo de ferro está prestes a colapsar.'},
+{n:'Buraco Negro Estelar',tp:'Depois da supernova',c:'#ffa040',r:20,m:[10,1000],bh:1,d:'O núcleo colapsou. Nem a luz escapa de você. A malha do espaço-tempo se dobra.'},
+{n:'Buraco Negro Supermassivo',tp:'Centro da galáxia, como Sagitário A*',c:'#ffcf80',r:34,m:[1e3,4e6],bh:1,d:'Você chegou ao centro galáctico. Devore as estrelas que sobraram.'}
+];
+const WS=3800,NEED=100;
+const rnd=(a,b)=>a+Math.random()*(b-a),hyp=Math.hypot,TAU=Math.PI*2;
+const hx=c=>[1,3,5].map(i=>parseInt(c.substr(i,2),16));
+const rgba=(c,a)=>{const [r,gg,b]=hx(c);return `rgba(${r},${gg},${b},${a})`};
+const mix=(a,b,t)=>{const A=hx(a),B=hx(b);return '#'+A.map((v,i)=>Math.round(v+(B[i]-v)*t).toString(16).padStart(2,'0')).join('')};
+const fm=v=>(v<1?v.toFixed(2):v<100?v.toFixed(1):Math.round(v).toLocaleString('pt-BR')).replace('.',',')+' M☉';
+const SC=['#ff7b54','#ffd27a','#fff4d6','#9fc4ff','#ff9966','#c9b6ff'];
+const PC=['#c98b5a','#6fa8dc','#d9c27a','#8fbf8f','#c47fb0','#e0e0e0'];
+
+/* ---------- Estado ---------- */
+const S={mode:'menu',ph:0,got:0,hp:100,t:0,flash:0,shake:0,bn:0,hurt:0,pause:false};
+const P={x:WS/2,y:WS/2,vx:0,vy:0,pr:7};
+const cam={x:WS/2,y:WS/2,l:0,t:0};
+let E,parts=[];
+const startPh=Math.max(0,Math.min(9,(+new URLSearchParams(location.search).get('fase')||1)-1));
+const bgStars=Array.from({length:220},()=>({x:rnd(0,3000),y:rnd(0,3000),s:rnd(.5,1.8),z:rnd(.03,.25)}));
+
+function build(){
+  const b=PH[S.ph].r;
+  E={st:[],pl:[],neb:[],dust:[],com:[]};
+  P.x=P.y=WS/2;P.vx=P.vy=0;
+  const placed=[];
+  const place=z=>{for(let i=0;i<80;i++){const x=rnd(250,WS-250),y=rnd(250,WS-250);
+    if(hyp(x-P.x,y-P.y)>z+300&&placed.every(q=>hyp(x-q.x,y-q.y)>z+q.z+120)){placed.push({x,y,z});return{x,y}}}return null};
+  const nh=5+Math.ceil(S.ph/2);
+  for(let i=0;i<nh;i++){
+    const r=b*rnd(1.8,3.4),z=r*3.2+40,p=place(z);if(!p)continue;
+    const s={x:p.x,y:p.y,r,z,h:1,c:SC[i%SC.length]};E.st.push(s);
+    const n=1+(Math.random()*3|0);
+    for(let k=0;k<n;k++){const R=rnd(r*1.5,z-18);
+      E.pl.push({s,a:rnd(0,TAU),R,w:(Math.random()<.5?-1:1)*rnd(70,110)/R,r:b*rnd(.2,.38)+2,c:PC[Math.random()*6|0],ring:Math.random()<.3,x:0,y:0})}
+  }
+  for(let i=0;i<7;i++){const r=b*rnd(.35,.6),p=place(r*2);if(p)E.st.push({x:p.x,y:p.y,r,z:0,h:0,c:SC[Math.random()*6|0]})}
+  for(let i=0;i<10;i++){const p=place(40);if(p)E.pl.push({s:null,x:p.x,y:p.y,r:b*rnd(.22,.45)+2,c:PC[Math.random()*6|0],ring:Math.random()<.3,a:0,R:0,w:0})}
+  for(let i=0;i<6;i++){const r=rnd(150,280),p=place(r*.5);if(!p)continue;
+    const h=[200,280,330,20,170,45][i%6];
+    E.neb.push({x:p.x,y:p.y,r,h,bl:Array.from({length:6},()=>({a:rnd(0,TAU),d:rnd(.1,.6),s:rnd(.45,.8)}))})}
+  for(let i=0;i<110;i++)E.dust.push({x:rnd(100,WS-100),y:rnd(100,WS-100),r:2.4});
+  for(let i=0;i<4;i++)com();
+}
+function com(){const a=rnd(0,TAU),sp=rnd(160,250);
+  E.com.push({x:rnd(100,WS-100),y:rnd(100,WS-100),vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,r:4})}
+function burst(x,y,c,n,sp){for(let i=0;i<n;i++){const a=rnd(0,TAU),v=rnd(.2,1)*sp;parts.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,l:rnd(.4,1),c})}}
+
+/* ---------- Entrada ---------- */
+const K={},ptr={on:false,x:0,y:0};
+addEventListener('keydown',e=>{const k=e.key.toLowerCase();K[k]=1;if(k==='p'||k==='escape')S.pause=!S.pause;if(k.startsWith('arrow')||k===' ')e.preventDefault()});
+addEventListener('keyup',e=>K[e.key.toLowerCase()]=0);
+cv.addEventListener('pointerdown',e=>{ptr.on=true;ptr.x=e.clientX;ptr.y=e.clientY});
+addEventListener('pointermove',e=>{ptr.x=e.clientX;ptr.y=e.clientY});
+addEventListener('pointerup',()=>ptr.on=false);
+
+/* ---------- Overlay ---------- */
+const ov=document.getElementById('ov');
+function show(h,p,b,f){ov.innerHTML=`<div class="cd"><h1>${h}</h1>${p}<button id="bt">${b}</button></div>`;ov.style.display='flex';
+  const bt=document.getElementById('bt');bt.onclick=()=>{ov.style.display='none';f()};bt.focus()}
+function banner(){S.bn=4}
+function restartPhase(){S.got=0;S.hp=100;build();S.mode='play';banner()}
+
+/* ---------- Lógica ---------- */
+function upd(dt){
+  S.t+=dt;const ph=PH[S.ph],prog=S.got/NEED,pr=ph.r*(1+.45*prog);P.pr=pr;
+  let ax=(K.arrowright||K.d?1:0)-(K.arrowleft||K.a?1:0),ay=(K.arrowdown||K.s?1:0)-(K.arrowup||K.w?1:0);
+  if(ptr.on){const dx=ptr.x-(P.x-cam.l),dy=ptr.y-(P.y-cam.t),d=hyp(dx,dy)||1,k=Math.min(1,d/90);ax+=dx/d*k;ay+=dy/d*k}
+  const m=hyp(ax,ay);if(m>1){ax/=m;ay/=m}
+  P.vx+=ax*480*dt;P.vy+=ay*480*dt;
+  let drag=.6,hurt=0;
+  for(const n of E.neb)if(hyp(P.x-n.x,P.y-n.y)<n.r*.8){S.got+=dt*2.2;drag=1.6;if(Math.random()<.3)burst(P.x,P.y,'#bfe0ff',1,40)}
+  for(const s of E.st){
+    const dx=s.x-P.x,dy=s.y-P.y,d=hyp(dx,dy)||1;
+    if(s.h){
+      if(d<s.z*2){const a=Math.min(650,2100*s.r*s.r/(d*d+s.r*s.r));P.vx+=dx/d*a*dt;P.vy+=dy/d*a*dt}
+      if(d<s.z)hurt+=12+20*(1-d/s.z);
+      if(d<s.r+pr*.6)hurt+=80;
+    }else if(d<pr+s.r*.5){s.dead=1;S.got+=18;S.hp=Math.min(100,S.hp+8);burst(s.x,s.y,s.c,30,160)}
+  }
+  S.hp-=hurt*dt;S.hurt=Math.max(S.hurt-dt,hurt>0?.35:0);
+  for(const p of E.pl){
+    if(p.s){p.a+=p.w*dt;p.x=p.s.x+Math.cos(p.a)*p.R;p.y=p.s.y+Math.sin(p.a)*p.R}
+    if(hyp(p.x-P.x,p.y-P.y)<pr+p.r){p.dead=1;S.got+=6;S.hp=Math.min(100,S.hp+4);burst(p.x,p.y,p.c,16,110)}
+  }
+  const mr=pr*2.5+40;
+  for(const d of E.dust){const dx=P.x-d.x,dy=P.y-d.y,q=hyp(dx,dy);
+    if(q<pr+4){d.dead=1;S.got+=1.2;S.hp=Math.min(100,S.hp+.4)}
+    else if(q<mr){d.x+=dx/q*260*dt;d.y+=dy/q*260*dt}}
+  for(const c of E.com){c.x+=c.vx*dt;c.y+=c.vy*dt;
+    if(c.x<0||c.y<0||c.x>WS||c.y>WS){c.dead=1;com()}
+    else if(hyp(c.x-P.x,c.y-P.y)<pr+c.r+6){c.dead=1;S.got+=5;burst(c.x,c.y,'#cfe8ff',14,120);com()}}
+  E.st=E.st.filter(s=>!s.dead);E.pl=E.pl.filter(p=>!p.dead);E.dust=E.dust.filter(d=>!d.dead);E.com=E.com.filter(c=>!c.dead);
+  const f=1-drag*dt;P.vx*=f;P.vy*=f;
+  const v=hyp(P.vx,P.vy);if(v>430){P.vx*=430/v;P.vy*=430/v}
+  P.x+=P.vx*dt;P.y+=P.vy*dt;
+  if(P.x<pr){P.x=pr;P.vx=Math.abs(P.vx)*.5}if(P.x>WS-pr){P.x=WS-pr;P.vx=-Math.abs(P.vx)*.5}
+  if(P.y<pr){P.y=pr;P.vy=Math.abs(P.vy)*.5}if(P.y>WS-pr){P.y=WS-pr;P.vy=-Math.abs(P.vy)*.5}
+  S.got=Math.min(NEED,S.got);
+  if(S.hp<=0){S.mode='over';burst(P.x,P.y,ph.c,50,220);
+    show('Dilacerada pela maré gravitacional','<p>Você ficou tempo demais na órbita de uma estrela maior. A fase recomeça com a vida cheia.</p>','Tentar de novo',restartPhase);return}
+  if(S.got>=NEED){
+    if(S.ph===9){S.mode='win';S.flash=1;
+      show('Você é o coração da galáxia','<p>Um buraco negro supermassivo de milhões de massas solares, no centro de tudo. As estrelas ao redor agora giram em torno de você.</p>','Jogar de novo',()=>{S.ph=0;S.got=0;S.hp=100;build();S.mode='play';banner()});return}
+    S.ph++;S.got=0;S.hp=100;S.flash=S.ph===8?1.6:.8;S.shake=S.ph===8?1:0;
+    burst(P.x,P.y,ph.c,S.ph===8?120:40,S.ph===8?420:200);
+    const px=P.x,py=P.y;build();P.x=px;P.y=py;banner()}
+}
+
+/* ---------- Desenho ---------- */
+function glow(x,y,r,c,a){const q=g.createRadialGradient(x,y,0,x,y,r);q.addColorStop(0,rgba(c,a));q.addColorStop(1,rgba(c,0));g.fillStyle=q;g.beginPath();g.arc(x,y,r,0,TAU);g.fill()}
+function star(x,y,r,c,t,k){
+  r*=1+(k||.03)*Math.sin(t*3+x);
+  g.globalCompositeOperation='lighter';glow(x,y,r*3.6,c,.5);glow(x,y,r*1.8,c,.6);g.globalCompositeOperation='source-over';
+  const q=g.createRadialGradient(x,y,0,x,y,r);q.addColorStop(0,'#fff');q.addColorStop(.45,mix(c,'#ffffff',.5));q.addColorStop(1,c);
+  g.fillStyle=q;g.beginPath();g.arc(x,y,r,0,TAU);g.fill()}
+function bh(x,y,r,t){
+  g.save();g.translate(x,y);g.rotate(-.35);g.scale(1,.3);
+  const q=g.createRadialGradient(0,0,r,0,0,r*3.6);
+  q.addColorStop(0,'rgba(255,250,220,.95)');q.addColorStop(.2,'rgba(255,170,60,.8)');q.addColorStop(.6,'rgba(200,70,20,.3)');q.addColorStop(1,'rgba(200,70,20,0)');
+  g.globalCompositeOperation='lighter';g.fillStyle=q;g.beginPath();g.arc(0,0,r*3.6,0,TAU);g.fill();g.restore();
+  g.globalCompositeOperation='source-over';
+  g.fillStyle='#000';g.beginPath();g.arc(x,y,r,0,TAU);g.fill();
+  g.strokeStyle='rgba(255,200,120,.9)';g.lineWidth=Math.max(1.5,r*.09);g.beginPath();g.arc(x,y,r*1.06,0,TAU);g.stroke();
+  g.strokeStyle='rgba(255,170,80,.45)';g.lineWidth=r*.12;g.beginPath();g.ellipse(x,y-r*.1,r*1.9,r*.75,-.35,Math.PI*1.08,Math.PI*1.92);g.stroke()}
+function planet(p,x,y){
+  const q=g.createRadialGradient(x-p.r*.4,y-p.r*.4,p.r*.1,x,y,p.r);q.addColorStop(0,mix(p.c,'#ffffff',.55));q.addColorStop(.6,p.c);q.addColorStop(1,mix(p.c,'#000000',.7));
+  g.fillStyle=q;g.beginPath();g.arc(x,y,p.r,0,TAU);g.fill();
+  if(p.ring){g.strokeStyle=rgba(mix(p.c,'#ffffff',.4),.65);g.lineWidth=2;g.beginPath();g.ellipse(x,y,p.r*2,p.r*.6,-.4,0,TAU);g.stroke()}}
+
+function grid(){
+  const st=44,l=cam.l,t=cam.t,i0=Math.floor(l/st)-1,j0=Math.floor(t/st)-1,nc=Math.ceil(W/st)+3,nr=Math.ceil(H/st)+3,wl=[],B=PH[S.ph].bh;
+  for(const s of E.st)if(Math.abs(s.x-cam.x)<W/2+1100&&Math.abs(s.y-cam.y)<H/2+1100)wl.push([s.x,s.y,s.r,s.h?5:2.2]);
+  wl.push([P.x,P.y,P.pr*(B?2.6:1.8),B?9:4]);
+  const X=[],Y=[];
+  for(let j=0;j<nr;j++)for(let i=0;i<nc;i++){
+    const x=(i0+i)*st,y=(j0+j)*st;let ox=0,oy=0;
+    for(const w of wl){const dx=w[0]-x,dy=w[1]-y,d=hyp(dx,dy)+.01,m=Math.min(d*.9,w[3]*w[2]*w[2]/(d+w[2]*1.5));ox+=dx/d*m;oy+=dy/d*m}
+    X.push(x+ox-l);Y.push(y+oy-t)}
+  g.lineWidth=1;g.strokeStyle='rgba(95,170,255,.22)';g.beginPath();
+  for(let j=0;j<nr;j++)for(let i=0;i<nc;i++){const k=j*nc+i;i?g.lineTo(X[k],Y[k]):g.moveTo(X[k],Y[k])}
+  for(let i=0;i<nc;i++)for(let j=0;j<nr;j++){const k=j*nc+i;j?g.lineTo(X[k],Y[k]):g.moveTo(X[k],Y[k])}
+  g.stroke()}
+
+function drawPlayer(x,y){
+  const ph=PH[S.ph],pr=P.pr,t=S.t,prog=S.got/NEED;
+  if(ph.bh){bh(x,y,pr,t);return}
+  const nx=PH[Math.min(9,S.ph+1)];
+  const c=mix(ph.c,nx.bh?'#ffffff':nx.c,.4*prog);
+  if(S.ph<2){ // disco de gás ao redor
+    for(let i=0;i<34;i++){const a=t*.9+i*.37,rr=pr*(1.7+(i*37%10)/5);
+      g.fillStyle=rgba(S.ph?'#ffb27a':'#c8805a',.55);g.beginPath();g.arc(x+Math.cos(a)*rr,y+Math.sin(a)*rr*.45,1.6,0,TAU);g.fill()}}
+  star(x,y,pr*(S.ph===0?(.85+.15*Math.random()):1),c,t,S.ph===7?.09:.03);
+  if(S.ph===7){g.globalCompositeOperation='lighter';glow(x,y,pr*2.4,c,.35);g.globalCompositeOperation='source-over'}
+  g.strokeStyle='rgba(255,255,255,.28)';g.lineWidth=1;g.beginPath();g.arc(x,y,pr*1.7+Math.sin(t*4)*2,0,TAU);g.stroke()}
+
+function draw(){
+  cam.x=Math.max(W/2,Math.min(WS-W/2,P.x));cam.y=Math.max(H/2,Math.min(WS-H/2,P.y));
+  if(WS<W)cam.x=WS/2;if(WS<H)cam.y=WS/2;
+  cam.l=cam.x-W/2;cam.t=cam.y-H/2;
+  const l=cam.l,t=cam.t,T=S.t;
+  g.fillStyle='#04050b';g.fillRect(0,0,W,H);
+  g.save();
+  if(S.shake>0){g.translate(rnd(-1,1)*S.shake*12,rnd(-1,1)*S.shake*12)}
+  for(const s of bgStars){const x=((s.x-cam.x*s.z)%W+W)%W,y=((s.y-cam.y*s.z)%H+H)%H;
+    g.fillStyle=`rgba(210,225,255,${.25+s.z*2})`;g.fillRect(x,y,s.s,s.s)}
+  g.globalCompositeOperation='lighter';
+  for(const n of E.neb){const x=n.x-l,y=n.y-t;if(x<-n.r*1.5||x>W+n.r*1.5||y<-n.r*1.5||y>H+n.r*1.5)continue;
+    for(const b of n.bl){const bx=x+Math.cos(b.a+T*.03)*n.r*b.d,by=y+Math.sin(b.a+T*.03)*n.r*b.d,br=n.r*b.s;
+      const q=g.createRadialGradient(bx,by,0,bx,by,br);q.addColorStop(0,`hsla(${n.h},75%,55%,.17)`);q.addColorStop(1,`hsla(${n.h},75%,55%,0)`);
+      g.fillStyle=q;g.beginPath();g.arc(bx,by,br,0,TAU);g.fill()}}
+  g.globalCompositeOperation='source-over';
+  grid();
+  g.strokeStyle='rgba(255,120,90,.35)';g.lineWidth=2;g.strokeRect(-l,-t,WS,WS);
+  for(const s of E.st){const x=s.x-l,y=s.y-t,e=s.z||s.r*3;if(x<-e||x>W+e||y<-e||y>H+e)continue;
+    if(s.h){const q=g.createRadialGradient(x,y,s.r,x,y,s.z);q.addColorStop(0,'rgba(255,60,40,.16)');q.addColorStop(1,'rgba(255,60,40,0)');
+      g.fillStyle=q;g.beginPath();g.arc(x,y,s.z,0,TAU);g.fill();
+      g.setLineDash([9,11]);g.lineDashOffset=-T*14;g.strokeStyle=`rgba(255,90,70,${.45+.2*Math.sin(T*3)})`;g.lineWidth=1.5;
+      g.beginPath();g.arc(x,y,s.z,0,TAU);g.stroke();g.setLineDash([])}
+    star(x,y,s.r,s.c,T);
+    if(!s.h){g.strokeStyle='rgba(120,255,200,.5)';g.lineWidth=1;g.beginPath();g.arc(x,y,s.r*1.6,0,TAU);g.stroke()}}
+  for(const p of E.pl){const x=p.x-l,y=p.y-t;if(x>-30&&x<W+30&&y>-30&&y<H+30)planet(p,x,y)}
+  g.fillStyle='rgba(200,225,255,.85)';
+  for(const d of E.dust){const x=d.x-l,y=d.y-t;if(x>0&&x<W&&y>0&&y<H){g.beginPath();g.arc(x,y,d.r,0,TAU);g.fill()}}
+  for(const c of E.com){const x=c.x-l,y=c.y-t,v=hyp(c.vx,c.vy);if(x<-80||x>W+80||y<-80||y>H+80)continue;
+    const tx=x-c.vx/v*90,ty=y-c.vy/v*90,q=g.createLinearGradient(x,y,tx,ty);q.addColorStop(0,'rgba(190,230,255,.8)');q.addColorStop(1,'rgba(190,230,255,0)');
+    g.strokeStyle=q;g.lineWidth=4;g.beginPath();g.moveTo(x,y);g.lineTo(tx,ty);g.stroke();
+    g.fillStyle='#fff';g.beginPath();g.arc(x,y,c.r,0,TAU);g.fill()}
+  drawPlayer(P.x-l,P.y-t);
+  g.globalCompositeOperation='lighter';
+  for(const p of parts){g.fillStyle=rgba(p.c,Math.max(0,p.l));g.fillRect(p.x-l,p.y-t,2.5,2.5)}
+  g.globalCompositeOperation='source-over';
+  g.restore();
+  if(S.hurt>0){const q=g.createRadialGradient(W/2,H/2,Math.min(W,H)*.3,W/2,H/2,Math.max(W,H)*.7);q.addColorStop(0,'rgba(255,0,0,0)');q.addColorStop(1,`rgba(255,30,20,${Math.min(.55,S.hurt*1.4)})`);
+    g.fillStyle=q;g.fillRect(0,0,W,H);
+    g.fillStyle='#ff8a78';g.font='italic 17px Georgia,serif';g.textAlign='center';g.fillText('Você está na órbita de uma estrela maior. Saia!',W/2,H-34)}
+  if(S.bn>0&&S.mode==='play'){const ph=PH[S.ph],a=Math.min(1,S.bn);g.globalAlpha=a;g.textAlign='center';
+    g.fillStyle='#fff';g.font='34px Georgia,serif';g.fillText(`Fase ${S.ph+1} de 10: ${ph.n}`,W/2,H*.2);
+    g.fillStyle='#c9d1f0';g.font='italic 16px Georgia,serif';g.fillText(ph.d.length>70?ph.d.slice(0,ph.d.lastIndexOf(' ',70))+'…':ph.d,W/2,H*.2+30);g.globalAlpha=1}
+  if(S.flash>0){g.fillStyle=`rgba(255,255,255,${Math.min(1,S.flash)})`;g.fillRect(0,0,W,H)}
+  if(S.pause){g.fillStyle='rgba(0,0,0,.55)';g.fillRect(0,0,W,H);g.fillStyle='#fff';g.font='30px Georgia,serif';g.textAlign='center';g.fillText('Pausado (P para continuar)',W/2,H/2)}
+}
+
+/* ---------- HUD e loop ---------- */
+const $=id=>document.getElementById(id);
+function hud(){const ph=PH[S.ph],p=S.got/NEED,mass=ph.m[0]*Math.pow(ph.m[1]/ph.m[0],p);
+  const col=ph.bh?'#ffa040':mix(ph.c,PH[Math.min(9,S.ph+1)].bh?'#ffffff':PH[S.ph+1].c,.4*p);
+  $('hn').textContent=`Fase ${S.ph+1}/10: ${ph.n}`;$('ht').textContent=ph.tp;
+  $('pb').style.width=p*100+'%';$('pb').style.background=col;$('hm').textContent=fm(mass);
+  $('hb').style.width=Math.max(0,S.hp)+'%';$('hv').textContent=Math.ceil(Math.max(0,S.hp))+'%'}
+let last=0;
+function frame(ts){
+  const dt=Math.min(.033,(ts-last)/1000||0);last=ts;
+  if(S.mode==='play'&&!S.pause)upd(dt);
+  S.flash=Math.max(0,S.flash-dt*.8);S.shake=Math.max(0,S.shake-dt*.7);S.bn=Math.max(0,S.bn-dt);
+  if(S.mode!=='play'||S.pause){if(S.mode==='menu')S.t+=dt}
+  for(const p of parts){p.x+=p.vx*dt;p.y+=p.vy*dt;p.l-=dt*.8}parts=parts.filter(p=>p.l>0);
+  if(S.hurt>0&&S.mode==='play')S.hurt=Math.max(0,S.hurt-dt*.5);
+  draw();hud();requestAnimationFrame(frame)}
+
+S.ph=startPh;build();
+show('Singularidade','<p>Você é uma proto-estrela no berço de uma nuvem de gás. Engula poeira, planetas, cometas e estrelas menores até virar um buraco negro supermassivo no centro da galáxia. São 10 fases.</p><p>Estrelas maiores dobram o espaço-tempo (a malha azul) e têm uma órbita de perigo tracejada em vermelho. Dentro dela você perde integridade. Estrelas menores, com anel verde, podem ser devoradas.</p><p><b>Controles:</b> setas ou WASD, ou segure o mouse ou o dedo para acelerar naquela direção. P pausa.</p>','Começar',()=>{S.mode='play';banner()});
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
